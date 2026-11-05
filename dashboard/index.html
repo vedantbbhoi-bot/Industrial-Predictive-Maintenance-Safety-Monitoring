@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Machine Health">
+<title>Machine Health</title>
+<!--
+  Machine Health dashboard. Single file, no network dependencies (ESP32 SoftAP has no internet).
+  Data contract (SSE, GET /events, one JSON per message), matches FR7 CSV columns:
+  {"t":123456,"vib":0|1,"temp":28.4|null,"hum":55.1|null,"cur":0.85|null,
+   "state":"NORMAL|WARNING|CRITICAL","silenced":0|1,"lv":{"vib":0,"temp":0,"cur":0}}
+  null = invalid/disconnected sensor (FR10). lv = per-channel level 0/1/2 (optional).
+  Demo mode (no hardware): open with ?demo=1, or open the file directly.
+-->
+<style>
+:root{--bg:#f2f2f7;--card:#fff;--label:#000;--l2:rgba(60,60,67,.62);--sep:rgba(60,60,67,.16);--fill:rgba(120,120,128,.14);
+--green:#34c759;--orange:#ff9500;--red:#ff3b30;--blue:#007aff;--purple:#af52de;--teal:#32ade6;--ease-out:cubic-bezier(.23,1,.32,1)}
+@media(prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--label:#fff;--l2:rgba(235,235,245,.62);--sep:rgba(84,84,88,.6);--fill:rgba(120,120,128,.28);
+--green:#30d158;--orange:#ff9f0a;--red:#ff453a;--blue:#0a84ff;--purple:#bf5af2;--teal:#64d2ff}}
+*{box-sizing:border-box;margin:0}
+html{-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--label);font:17px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,Roboto,sans-serif;
+padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);-webkit-font-smoothing:antialiased}
+header{position:sticky;top:0;z-index:5;padding:calc(env(safe-area-inset-top) + 14px) max(20px,calc((100% - 1080px)/2 + 16px)) 10px;display:flex;align-items:flex-end;justify-content:space-between;gap:12px;
+background:color-mix(in srgb,var(--bg) 78%,transparent);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)}
+h1{font-size:34px;line-height:1.1;font-weight:700;letter-spacing:.37px}
+header p{font-size:13px;color:var(--l2)}
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 12px;border-radius:14px;background:var(--fill);font-size:13px;font-weight:600;white-space:nowrap}
+.chip i,.dot{width:8px;height:8px;border-radius:50%;background:var(--s,var(--l2));display:inline-block}
+.layout{max-width:1080px;margin:0 auto;padding:8px 16px 32px;display:grid;gap:16px}
+@media(min-width:900px){.layout.demo{grid-template-columns:1fr 320px;align-items:start}.sim{position:sticky;top:96px}}
+.stack{display:grid;gap:12px}
+.card{background:var(--card);border-radius:20px;padding:16px}
+.hero{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:20px;background:color-mix(in srgb,var(--s) 15%,var(--card));transition:background-color .2s var(--ease-out)}
+[data-state=normal]{--s:var(--green)}[data-state=warning]{--s:var(--orange)}[data-state=critical]{--s:var(--red)}
+.hero .ic{width:60px;height:60px;border-radius:50%;background:var(--s);display:grid;place-items:center;flex:none;transition:background-color .2s var(--ease-out)}
+.hero svg{width:30px;height:30px;stroke:#fff;stroke-width:2.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.hero div:nth-child(2){flex:1;min-width:160px}
+h2{font-size:28px;font-weight:700;line-height:1.15}
+.hero p{color:var(--l2);font-size:15px;margin-top:2px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px}
+.card[data-lv="1"]{--s:var(--orange)}.card[data-lv="2"]{--s:var(--red)}.card[data-lv="0"]{--s:var(--green)}
+.top{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;color:var(--l2)}
+.top b{width:28px;height:28px;border-radius:8px;background:var(--tint);display:grid;place-items:center}
+.top svg{width:17px;height:17px;stroke:#fff;stroke-width:2.2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.val{font-size:40px;font-weight:700;letter-spacing:.3px;margin:10px 0 2px;font-variant-numeric:tabular-nums}
+.val small{font-size:17px;font-weight:600;color:var(--l2);margin-left:3px}
+.st{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--l2);min-height:18px}
+.spark{width:100%;height:30px;margin-top:10px;display:block}
+.spark polyline{fill:none;stroke:var(--tint);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+h3{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.3px;color:var(--l2);padding:0 16px 6px}
+ul{list-style:none;padding:0;background:var(--card);border-radius:20px;overflow:hidden}
+li{display:flex;justify-content:space-between;gap:12px;padding:12px 16px;font-size:15px}
+li+li{border-top:1px solid var(--sep)}li time{color:var(--l2);font-variant-numeric:tabular-nums}
+.sim{display:grid;gap:14px}.sim h2{font-size:20px}
+.sim label{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:15px;min-height:44px}
+.sim output{color:var(--l2);font-variant-numeric:tabular-nums;min-width:56px;text-align:right}
+.sim .row{display:grid;gap:2px}
+input[type=range]{width:100%;accent-color:var(--blue);height:32px}
+input[type=checkbox]{appearance:none;-webkit-appearance:none;width:51px;height:31px;border-radius:16px;background:var(--fill);position:relative;flex:none;cursor:pointer;transition:background-color .2s var(--ease-out)}
+input[type=checkbox]::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.25);transition:transform .2s var(--ease-out)}
+input[type=checkbox]:checked{background:var(--green)}input[type=checkbox]:checked::after{transform:translateX(20px)}
+.btn{min-height:50px;border:0;border-radius:14px;background:var(--blue);color:#fff;font-weight:600;font-size:17px;font-family:inherit;cursor:pointer;transition:transform .1s var(--ease-out),opacity .1s}
+.btn:active{transform:scale(.97);opacity:.85}
+:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.note{font-size:13px;color:var(--l2)}
+[hidden]{display:none!important}
+@media(prefers-reduced-motion:reduce){*,*::after{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>Machine Health</h1><p>ESP32 Predictive Maintenance Node</p></div>
+  <span class="chip" id="conn" role="status"><i></i><span>Connecting</span></span>
+</header>
+<div class="layout" id="layout">
+  <main class="stack">
+    <section class="card hero" id="hero" data-state="normal" aria-live="polite">
+      <div class="ic"><svg viewBox="0 0 24 24"><path id="hp" d="M5 12.5l4.5 4.5L19 7"/></svg></div>
+      <div><h2 id="st">Normal</h2><p id="sb">Waiting for data…</p></div>
+      <span class="chip" id="sil" hidden>Buzzer silenced</span>
+    </section>
+    <section class="grid" id="grid" aria-label="Sensor readings"></section>
+    <section><h3>Activity</h3><ul id="log"><li><span>Waiting for first reading</span></li></ul></section>
+  </main>
+  <aside class="card sim" id="sim" hidden aria-label="Simulator">
+    <h2>Simulator</h2>
+    <p class="note">Demo data only. Thresholds and timers follow PRD section 10.</p>
+    <div class="row"><label for="rt">Temperature <output id="ot">28 °C</output></label><input id="rt" type="range" min="20" max="70" step="1" value="28"></div>
+    <div class="row"><label for="rc">Current <output id="oc">0.3 A</output></label><input id="rc" type="range" min="0" max="4" step="0.1" value="0.3"></div>
+    <label for="cv">Vibration HIGH<input id="cv" type="checkbox" role="switch"></label>
+    <label for="cx">Unplug DHT22<input id="cx" type="checkbox" role="switch"></label>
+    <label for="cy">Unplug ACS712<input id="cy" type="checkbox" role="switch"></label>
+    <button class="btn" id="ack" type="button">Acknowledge (GPIO 27)</button>
+  </aside>
+</div>
+<script>
+const $=s=>document.querySelector(s),set=(e,t)=>{if(e.textContent!==t)e.textContent=t};
+const LV=['Normal','Warning','Critical'],ST=['NORMAL','WARNING','CRITICAL'];
+const CH=[
+ {k:'temp',n:'Temperature',u:'°C',d:1,t:'--orange',r:[15,70],i:'M10 14V5a2 2 0 1 1 4 0v9a4 4 0 1 1-4 0z'},
+ {k:'cur',n:'Current',u:'A',d:2,t:'--blue',r:[0,5],i:'M13 2 4 14h7l-1 8 9-12h-7z'},
+ {k:'vib',n:'Vibration',t:'--purple',r:[0,1],i:'M3 12h3l2-6 4 12 3-9 2 3h4'},
+ {k:'hum',n:'Humidity',u:'%',d:1,t:'--teal',r:[0,100],i:'M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z'}];
+const ICON={NORMAL:'M5 12.5l4.5 4.5L19 7',WARNING:'M12 5v9M12 19v.01',CRITICAL:'M6 6l12 12M18 6L6 18'};
+const hist={};
+$('#grid').innerHTML=CH.map(c=>`<article class="card" id="c-${c.k}" style="--tint:var(${c.t})"><div class="top"><b><svg viewBox="0 0 24 24"><path d="${c.i}"/></svg></b>${c.n}</div>
+<div class="val" id="v-${c.k}">—</div><div class="st"><span class="dot"></span><span id="s-${c.k}"></span></div>
+<svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><polyline id="p-${c.k}" points=""/></svg></article>`).join('');
+
+let prev=null;
+function render(d){
+  const lvl=ST.indexOf(d.state),hero=$('#hero');
+  hero.dataset.state=d.state.toLowerCase();
+  $('#hp').setAttribute('d',ICON[d.state]);
+  set($('#st'),LV[lvl]);
+  const bad=CH.filter(c=>d.lv&&d.lv[c.k]>0).map(c=>c.n.toLowerCase());
+  const off=[d.temp==null&&'DHT22',d.cur==null&&'ACS712'].filter(Boolean);
+  set($('#sb'),(lvl?'Check '+bad.join(' and '):'All readings in range')+(off.length?' · '+off.join(', ')+' offline':''));
+  $('#sil').hidden=!d.silenced;
+  for(const c of CH){
+    const v=c.k==='vib'?d.vib:d[c.k],isOff=v==null,card=$('#c-'+c.k),lv=d.lv?d.lv[c.k]:undefined;
+    const txt=isOff?'—':c.k==='vib'?(v?'Active':'Quiet'):v.toFixed(c.d);
+    $('#v-'+c.k).innerHTML=txt+(c.u&&!isOff?`<small>${c.u}</small>`:'');
+    card.dataset.lv=isOff?'x':lv==null?'':lv;
+    set($('#s-'+c.k),isOff?'Sensor offline':c.k==='hum'?'Display only':lv==null?'':LV[lv]);
+    const h=hist[c.k]=(hist[c.k]||[]).concat(isOff?[]:[v]).slice(-60),[lo,hi]=c.r;
+    $('#p-'+c.k).setAttribute('points',h.map((y,x)=>`${(x/59*100).toFixed(1)},${(28-Math.max(0,Math.min(1,(y-lo)/(hi-lo)))*26).toFixed(1)}`).join(' '));
+  }
+  if(prev&&prev!==d.state){
+    const li=document.createElement('li');
+    li.innerHTML=`<span>${LV[ST.indexOf(prev)]} → ${LV[lvl]}${bad.length?' · '+bad.join(', '):''}</span><time>${new Date().toLocaleTimeString()}</time>`;
+    const log=$('#log');if(log.firstChild&&!log.firstChild.querySelector('time'))log.innerHTML='';
+    log.prepend(li);while(log.children.length>6)log.lastChild.remove();
+  }
+  prev=d.state;
+}
+function conn(ok,label){const c=$('#conn');c.style.setProperty('--s',ok?'var(--green)':'var(--red)');set(c.lastChild,label||(ok?'Live':'Offline'))}
+
+function live(){
+  const es=new EventSource('/events');
+  es.onmessage=e=>{conn(true);render(JSON.parse(e.data))};
+  es.onerror=()=>conn(false);
+}
+
+function demo(){
+  $('#layout').classList.add('demo');$('#sim').hidden=false;conn(true,'Demo');
+  const TH={temp:[45,55,42,3,2],cur:[1.5,2.5,1.2,2,2]};
+  const C={temp:{lv:0,up:0,dn:0},cur:{lv:0,up:0,dn:0},vib:{lv:0,up:0,dn:0}};
+  let t=0,hi=0,state=0,sil=0;
+  const step=(c,raw,below,cw,cc)=>{
+    const tgt=Math.min(raw,c.lv+1);
+    if(raw>c.lv){if(++c.up>=(tgt===2?cc:cw)){c.lv=tgt;c.up=0}}else c.up=0;
+    if(below){if(++c.dn>=5){c.lv=0;c.dn=0}}else c.dn=0;
+  };
+  const v=id=>$(id).type==='checkbox'?$(id).checked:+$(id).value;
+  $('#rt').oninput=()=>set($('#ot'),v('#rt')+' °C');
+  $('#rc').oninput=()=>set($('#oc'),(+v('#rc')).toFixed(1)+' A');
+  $('#ack').onclick=()=>{if(state>0){sil=1;tick(true)}};
+  function tick(redraw){
+    if(!redraw)t++;
+    const noT=v('#cx'),noC=v('#cy'),vib=v('#cv')?1:0;
+    const temp=noT?null:+(v('#rt')+Math.random()*.2-.1).toFixed(1),cur=noC?null:+Math.max(0,v('#rc')+Math.random()*.04-.02).toFixed(2);
+    if(!redraw){
+      for(const [k,x] of [['temp',temp],['cur',cur]]){
+        const [w,c,e,cw,cc]=TH[k];
+        if(x==null)C[k].lv=C[k].up=C[k].dn=0;else step(C[k],x>c?2:x>w?1:0,x<e,cw,cc);
+      }
+      hi=vib?hi+1:0;step(C.vib,hi>4?2:hi>2?1:0,!vib,1,1);
+      const n=Math.max(C.temp.lv,C.cur.lv,C.vib.lv);
+      if(n===0||(n===2&&state===1))sil=0;
+      state=n;
+    }
+    render({t:t*1000,vib,temp,cur,hum:noT?null:+(55+Math.random()*.4).toFixed(1),state:ST[state],silenced:sil,lv:{vib:C.vib.lv,temp:C.temp.lv,cur:C.cur.lv}});
+  }
+  tick();setInterval(tick,1000);
+}
+if(location.protocol==='file:'||/[?&]demo/.test(location.search))demo();else live();
+</script>
+</body>
+</html>
