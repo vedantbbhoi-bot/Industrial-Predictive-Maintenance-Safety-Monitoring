@@ -9,11 +9,20 @@ Spec: `docs/PRD_v6.0.pdf`.
 | Part | Folder | What | Done when |
 |---|---|---|---|
 | 1 Hardware bring-up | `docs/` | Wiring (PRD s7-8), 3.3 V vs 5 V rules, ACS712 divider, calibration (s14) | T10 and T15 pass: divider reads ~3.0 V, no-load current ~0 A |
-| 2 Firmware core | `firmware/` | Sensor scheduler, filters, debounce, FSM + SILENCED, FR10 invalid detection | T1-T9b pass over Serial |
+| 2 Firmware core | `firmware/lib/core` | Filters, debounce, FSM + SILENCED, FR10 invalid detection, ADC math, JSON/CSV output. **Done.** | 38 PC tests pass (`make test`) |
 | 3 Firmware I/O | `firmware/` | OLED, LED patterns, buzzer, ack button (GPIO 27), watchdog, Serial CSV | T6, T7, T8, T12, T14 pass |
 | 4 Network | `firmware/` | SoftAP (WPA2), `/events` SSE stream, LittleFS serves dashboard | 3-4 laptops update, latency < 1.5 s (T11) |
 | 5 Dashboard app | `dashboard/` | Apple-style live dashboard. **Done.** | Matches FSM rules in demo mode |
 | 6 Test and demo | `docs/` | Test results T1-T15, calibration record, demo script, report | Success criteria (PRD s18) all ticked |
+
+## Order of work
+
+Software first, hardware and hardware testing last. The firmware core has no ESP32 code in it, so it is tested on a PC.
+
+## Firmware core (Part 2)
+
+Run the tests: `cd firmware && make test` (needs g++). Or just push: GitHub Actions runs them and shows a green tick under the **Actions** tab.
+All thresholds and timings are in `firmware/lib/core/config.h`.
 
 ## Dashboard (Part 5)
 
