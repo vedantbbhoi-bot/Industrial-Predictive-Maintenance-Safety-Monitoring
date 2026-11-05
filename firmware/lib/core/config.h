@@ -18,6 +18,7 @@ const uint32_t EXIT_MS = 5000;
 // ACS712 conversion (PRD section 14)
 const float ACS_SENS  = 0.185f;          // V per A (5A module). 20A module = 0.100
 const float DIV_RATIO = 25.0f / 15.0f;   // (10k + 15k) / 15k
+const float ACS_ZERO_V = 2.5f;           // divider-input volts with NO load. CALIBRATE (PRD s14, T15)
 // Validity ranges (FR10)
 const float TEMP_MIN = -40.0f, TEMP_MAX = 80.0f, CUR_MAX_ABS = 5.5f;
 // Filtering and debounce (FR2)
