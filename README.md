@@ -26,7 +26,7 @@ All thresholds and timings are in `firmware/lib/core/config.h`.
 
 ## Run on the ESP32 (Parts 3 and 4)
 
-1. Install VS Code, then the **PlatformIO IDE** extension. Open the `firmware` folder in VS Code.
+1. Install VS Code, then the **PlatformIO IDE** extension. (The project uses the official `espressif32 @ 6.12.0` platform; the newer pioarduino platform failed to install on one Windows PC.) Open the `firmware` folder in VS Code.
 2. **No sensors yet? Use simulation:** plug in the bare ESP32, then in the PlatformIO sidebar pick the `esp32-sim` environment: *Upload*, then *Upload Filesystem Image*, then *Monitor*.
    It plays a looping script (temperature, current, vibration, unplugged DHT22). The BOOT button is the acknowledge button.
 3. On a laptop, join Wi-Fi `MachineHealth` (password in `firmware/src/net_config.h`, also on the OLED at boot) and open http://192.168.4.1/

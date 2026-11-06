@@ -35,10 +35,17 @@ static int dhtFails = 0;
 static Inputs gIn{false, NAN, NAN, NAN};
 static uint32_t tFsm = 0, tCur = 0, tDht = 0, tOut = 0;
 
+#ifndef ESP_ARDUINO_VERSION_MAJOR
+#define ESP_ARDUINO_VERSION_MAJOR 2
+#endif
 static void startWatchdog() {            // FR9: a hung loop resets the chip after 8 s
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
   esp_task_wdt_config_t c;
   c.timeout_ms = 8000; c.idle_core_mask = 0; c.trigger_panic = true;
   if (esp_task_wdt_reconfigure(&c) != ESP_OK) esp_task_wdt_init(&c);
+#else
+  esp_task_wdt_init(8, true);            // Arduino core 2.x API: seconds, panic (reset) on timeout
+#endif
   esp_task_wdt_add(NULL);
 }
 
